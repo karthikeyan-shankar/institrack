@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>InstiTrack – Bus Signal Demo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .card {
+      background: #020617;
+      padding: 30px;
+      border-radius: 14px;
+      width: 380px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.6);
+    }
+
+    h1 {
+      text-align: center;
+      color: #38bdf8;
+      margin-bottom: 10px;
+    }
+
+    p {
+      text-align: center;
+      font-size: 14px;
+      color: #94a3b8;
+    }
+
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+    }
+
+    select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border-radius: 6px;
+      border: none;
+      font-size: 15px;
+    }
+
+    select {
+      background: #020617;
+      color: #e5e7eb;
+      border: 1px solid #334155;
+    }
+
+    button {
+      margin-top: 20px;
+      background: #22c55e;
+      color: black;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #16a34a;
+    }
+
+    .result {
+      margin-top: 20px;
+      background: #020617;
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      font-size: 14px;
+    }
+
+    .success {
+      color: #22c55e;
+    }
+
+    .error {
+      color: #ef4444;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>🚌 InstiTrack</h1>
+  <p>Bus Signal Demo Panel</p>
+
+  <label for="bus">Bus Number</label>
+  <select id="bus">
+    <option value="7">Bus 7</option>
+    <option value="12">Bus 12</option>
+    <option value="5">Bus 5</option>
+  </select>
+
+  <label for="location">Bus Stop</label>
+  <select id="location">
+    <option value="Stop A">Stop A</option>
+    <option value="Stop B">Stop B</option>
+    <option value="Stop C">Stop C</option>
+    <option value="Stop D">Stop D</option>
+    <option value="Stop X">Stop X</option>
+    <option value="Stop Y">Stop Y</option>
+    <option value="Stop Z">Stop Z</option>
+    <option value="Stop M">Stop M</option>
+    <option value="Stop N">Stop N</option>
+    <option value="Stop O">Stop O</option>
+  </select>
+
+  <button onclick="sendSignal()">📡 Send Bus Signal</button>
+
+  <div class="result" id="result">
+    Waiting for action…
+  </div>
+</div>
+
+<script>
+async function sendSignal() {
+  const bus = document.getElementById("bus").value;
+  const location = document.getElementById("location").value;
+  const resultBox = document.getElementById("result");
+
+  resultBox.innerHTML = "Sending signal…";
+
+  try {
+    const response = await fetch("/bus-signal", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        bus_number: bus,
+        location: location
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status === "success") {
+      resultBox.innerHTML = `
+        <div class="success">
+          ✅ Signal Sent Successfully!<br><br>
+          🚌 Bus: ${bus}<br>
+          🚏 Stop: ${location}<br>
+          👥 Users Notified: ${data.notified_count}
+        </div>
+      `;
+    } else {
+      resultBox.innerHTML = `<div class="error">❌ ${data.message}</div>`;
+    }
+
+  } catch (err) {
+    resultBox.innerHTML = `<div class="error">❌ Server error</div>`;
+  }
+}
+</script>
+
+</body>
+</html>
