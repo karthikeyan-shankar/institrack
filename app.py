@@ -98,6 +98,15 @@ bus_stops = {
     "5": ["Stop M", "Stop N", "Stop O"]
 }
 
+# ========== Threshold Configuration (seconds) ==========
+route_thresholds = {
+    "7": {"Stop A>Stop B": 20, "Stop B>Stop C": 20, "Stop C>Stop D": 20},
+    "12": {"Stop X>Stop Y": 20, "Stop Y>Stop Z": 20},
+    "5": {"Stop M>Stop N": 20, "Stop N>Stop O": 20}
+}
+
+active_buses = {}
+
 # ========== NLP Helper Functions ==========
 
 def detect_intent(message):
@@ -319,91 +328,95 @@ def bus_signal():
         if not bus_num or not location:
             return {"status": "error", "message": "bus_number and location required"}, 400
 
+        # --- Duplicate Detection ---
+        is_duplicate = False
+        bus_state = active_buses.get(bus_num, {})
+        if bus_state.get("last_stop") == location:
+            is_duplicate = True
+
+        # --- Determine stop index and next stop ---
+        stops = bus_stops.get(bus_num, [])
+        current_stop_index = -1
+        next_stop = None
+        threshold_seconds = 20
+
+        if stops and location in stops:
+            current_stop_index = stops.index(location)
+            if current_stop_index < len(stops) - 1:
+                next_stop = stops[current_stop_index + 1]
+                threshold_key = f"{location}>{next_stop}"
+                thresholds = route_thresholds.get(bus_num, {})
+                threshold_seconds = thresholds.get(threshold_key, 20)
+
+        # --- Update active bus state ---
+        active_buses[bus_num] = {
+            "last_stop": location,
+            "last_stop_index": current_stop_index,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        # --- Notify users (skip if duplicate) ---
         all_keys = db_keys()
         notified_users = []
         failed_users = []
-        all_registered_users = []
-        debug_comparisons = []
 
-        for key in all_keys:
-            if key.startswith('user_') and key.endswith('_bus'):
-                phone_raw = key[5:-4]
-                phone_id = phone_raw.lstrip('+')
+        if not is_duplicate:
+            for key in all_keys:
+                if key.startswith('user_') and key.endswith('_bus'):
+                    phone_raw = key[5:-4]
+                    phone_id = phone_raw.lstrip('+')
 
-                user_bus_num = db_get(key)
+                    user_bus_num = db_get(key)
+                    user_stop_name = db_get(f"user_{phone_raw}_stop")
+                    if user_stop_name is None:
+                        user_stop_name = db_get(f"user_{phone_id}_stop")
 
-                user_stop_name = db_get(f"user_{phone_raw}_stop")
-                if user_stop_name is None:
-                    user_stop_name = db_get(f"user_{phone_id}_stop")
+                    norm_user_bus = str(user_bus_num).strip().lstrip('0')
+                    norm_bus_num = str(bus_num).strip().lstrip('0')
+                    norm_user_stop = str(user_stop_name).strip().lower() if user_stop_name else ""
+                    norm_location = str(location).strip().lower()
 
-                is_registered = db_get(f"user_{phone_raw}_state") == "registered"
-                if not is_registered:
-                    is_registered = db_get(f"user_{phone_id}_state") == "registered"
+                    bus_match = norm_user_bus == norm_bus_num
+                    stop_match = norm_user_stop == norm_location
 
-                norm_user_bus = str(user_bus_num).strip().lstrip('0')
-                norm_bus_num = str(bus_num).strip().lstrip('0')
-                norm_user_stop = str(user_stop_name).strip().lower() if user_stop_name else ""
-                norm_location = str(location).strip().lower()
-
-                bus_match = norm_user_bus == norm_bus_num
-                stop_match = norm_user_stop == norm_location
-
-                # Detailed debug info for each comparison
-                debug_comparisons.append({
-                    "phone": phone_raw,
-                    "db_key": key,
-                    "raw_bus": user_bus_num,
-                    "raw_stop": user_stop_name,
-                    "norm_user_bus": norm_user_bus,
-                    "norm_signal_bus": norm_bus_num,
-                    "bus_match": bus_match,
-                    "norm_user_stop": norm_user_stop,
-                    "norm_signal_stop": norm_location,
-                    "stop_match": stop_match,
-                    "is_registered": is_registered,
-                    "twilio_configured": twilio_client is not None
-                })
-
-                if bus_match and stop_match:
-                    if twilio_client:
-                        try:
-                            twilio_phone = '+' + phone_id
-                            message = twilio_client.messages.create(
-                                from_=TWILIO_WHATSAPP_NUMBER,
-                                body=f"🚌 Bus Alert!\n\nBus {bus_num} has reached {location}!\n\n✅ Your stop is coming up.",
-                                to=f"whatsapp:{twilio_phone}"
-                            )
+                    if bus_match and stop_match:
+                        if twilio_client:
+                            try:
+                                twilio_phone = '+' + phone_id
+                                message = twilio_client.messages.create(
+                                    from_=TWILIO_WHATSAPP_NUMBER,
+                                    body=f"\U0001f68c Bus Alert!\n\nBus {bus_num} has reached {location}!\n\n\u2705 Your stop is coming up.",
+                                    to=f"whatsapp:{twilio_phone}"
+                                )
+                                notified_users.append(phone_raw)
+                            except Exception as e:
+                                failed_users.append({"phone": phone_raw, "error": str(e)})
+                        else:
                             notified_users.append(phone_raw)
-                        except Exception as e:
-                            failed_users.append({"phone": phone_raw, "error": str(e)})
-                    else:
-                        notified_users.append(phone_raw)
-
-                all_registered_users.append({
-                    "phone": phone_raw,
-                    "bus": user_bus_num,
-                    "stop": user_stop_name,
-                    "is_registered": is_registered
-                })
 
         return {
             "status": "success",
             "message": f"Bus {bus_num} reached {location}",
+            "stop_confirmed": location,
+            "next_stop": next_stop,
+            "threshold_seconds": threshold_seconds if next_stop else 0,
+            "is_last_stop": next_stop is None and current_stop_index >= 0,
+            "is_duplicate": is_duplicate,
             "notified_count": len(notified_users),
             "notified_users": notified_users,
             "failed_count": len(failed_users),
-            "failed_users": failed_users if failed_users else None,
-            "debug": {
-                "searching_for": {"bus": bus_num, "stop": location},
-                "all_registered_users": all_registered_users,
-                "comparisons": debug_comparisons,
-                "total_db_keys": len(all_keys),
-                "bus_keys_found": len([k for k in all_keys if k.startswith('user_') and k.endswith('_bus')])
-            }
+            "failed_users": failed_users if failed_users else None
         }, 200
 
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
+
+@app.route("/bus-status/<bus_number>", methods=["GET"])
+def bus_status(bus_number):
+    state = active_buses.get(bus_number)
+    if state:
+        return {"status": "active", "bus": bus_number, **state}, 200
+    return {"status": "inactive", "bus": bus_number}, 200
 
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp():
