@@ -380,15 +380,24 @@ def bus_signal():
                             else:
                                 body_text = f"🚌 Bus Alert!\n\nBus {bus_num} has reached {location}!\n\n✅ Your stop is coming up."
 
+                            print(f"[TWILIO DEBUG] Sending to: whatsapp:{twilio_phone}")
+                            print(f"[TWILIO DEBUG] From: {TWILIO_WHATSAPP_NUMBER}")
+                            print(f"[TWILIO DEBUG] Body: {body_text}")
+                            print(f"[TWILIO DEBUG] SID: {TWILIO_ACCOUNT_SID[:8]}...")
+                            
                             message = twilio_client.messages.create(
                                 from_=TWILIO_WHATSAPP_NUMBER,
                                 body=body_text,
                                 to=f"whatsapp:{twilio_phone}"
                             )
-                            notified_users.append(phone_raw)
+                            print(f"[TWILIO DEBUG] ✅ Message SID: {message.sid}")
+                            print(f"[TWILIO DEBUG] ✅ Status: {message.status}")
+                            notified_users.append({"phone": phone_raw, "sid": message.sid, "status": message.status})
                         except Exception as e:
+                            print(f"[TWILIO DEBUG] ❌ EXCEPTION: {str(e)}")
                             failed_users.append({"phone": phone_raw, "error": str(e)})
                     else:
+                        print("[TWILIO DEBUG] ⚠️ twilio_client is NONE! Skipping send.")
                         notified_users.append(phone_raw)
 
                 all_registered_users.append({
